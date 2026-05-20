@@ -4,7 +4,7 @@ services:
     env: node
     plan: free
     branch: main
-    buildCommand: npm install && npm --workspace backend run build
+    buildCommand: npm install --include=dev && npm --workspace backend run build
     startCommand: npm --workspace backend run start
     healthCheckPath: /health
     envVars:
