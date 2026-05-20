@@ -68,8 +68,51 @@ npm run dev
 
 ---
 
-Если нужно, могу добавить:
+## Развёртывание
 
-- аутентификацию
-- сохранение истории анализа
-- структуру критериев оценки изображений
+### 1. Подготовьте GitHub
+
+Если у вас уже есть репозиторий для предыдущей версии, можно использовать его заново:
+
+- добавьте `origin` с URL существующего репозитория
+- отправьте ветку `main`
+
+```bash
+git remote add origin <GITHUB_REPO_URL>
+git branch -M main
+git push -u origin main
+```
+
+Если репозитория ещё нет, создайте новый на GitHub и затем выполните те же команды.
+
+### 2. Настройте Render
+
+В Render можно подключить GitHub-репозиторий и использовать `render.yaml` для определения сервисов.
+
+- `card-rating2-backend` — `web_service`, `Node`, `buildCommand: npm install && npm --workspace backend run build`, `startCommand: npm --workspace backend run start`
+- `card-rating2-frontend` — `static_site`, `Static`, `buildCommand: npm install && npm --workspace frontend run build`, `publishPath: frontend/dist`
+
+Для backend нужно добавить переменную окружения `SEGMIND_API_KEY` в настройках сервиса.
+
+### 3. Настройте Cloudflare
+
+Если хотите показывать результат по собственному домену:
+
+- добавьте CNAME-запись, указывающую на адрес статического сайта Render (`<project>.onrender.com`)
+- если домен на уровне `@`, используйте ALIAS/ANAME или перенаправление Cloudflare на Render
+
+### 4. Проверка
+
+После деплоя:
+
+- откройте URL фронтенд-сайта
+- проверьте, что изображение загружается
+- проверьте, что backend отвечает на `POST /api/analyze`
+
+---
+
+Если нужно, могу прямо сейчас:
+
+- добавить удалённый GitHub-репозиторий, если вы дадите URL
+- подготовить Render сервисы с помощью `render.yaml`
+- дать точные записи Cloudflare для текущего домена
