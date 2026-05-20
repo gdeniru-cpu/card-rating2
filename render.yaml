@@ -1,0 +1,19 @@
+services:
+  - type: web_service
+    name: card-rating2-backend
+    env: node
+    plan: free
+    branch: main
+    buildCommand: npm install && npm --workspace backend run build
+    startCommand: npm --workspace backend run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+  - type: static_site
+    name: card-rating2-frontend
+    env: static
+    plan: free
+    branch: main
+    buildCommand: npm install && npm --workspace frontend run build
+    publishPath: frontend/dist
