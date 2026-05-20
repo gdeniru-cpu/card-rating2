@@ -128,17 +128,33 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
     ],
   };
 
-  const response = await axios.post(API_URL, data, {
-    headers: {
-      "x-api-key": API_KEY,
-      "Content-Type": "application/json",
-    },
-  });
+  try {
+    const response = await axios.post(API_URL, data, {
+      headers: {
+        "x-api-key": API_KEY,
+        "Content-Type": "application/json",
+      },
+    });
 
-  const assistantContent = response.data.choices?.[0]?.message?.content;
+    const assistantContent = response.data.choices?.[0]?.message?.content;
 
-  return {
-    raw: response.data,
-    assistant: normalizeAssistantContent(assistantContent),
-  };
+    return {
+      raw: response.data,
+      assistant: normalizeAssistantContent(assistantContent),
+    };
+  } catch (error: unknown) {
+    const err = error as any;
+    const status = err.response?.status;
+    const details = err.response?.data;
+
+    if (status === 406) {
+      return {
+        raw: details,
+        assistant: `DEMO-РЕЖИМ: недостаточно кредитов для реального анализа.\n\nПример рекомендаций по критериям:\n1. Хорошо ли видно продукт: продукт видно достаточно чётко, но можно улучшить контраст и убрать лишние тени.\n2. Отображены ли основные УТП: на изображении нет явного текста или элементов, подчёркивающих уникальные преимущества — добавьте маркеры/иконки с ключевыми характеристиками.\n3. Не перегружено ли изображение дополнительными элементами: фон и реквизиты выглядят немного загромождёнными; сократите число второстепенных деталей и оставьте внимание на товаре.\n`,
+        demo: true,
+      };
+    }
+
+    throw err;
+  }
 }

@@ -125,6 +125,14 @@ select {
   border-radius: 12px;
 }
 
+.alert.info {
+  margin: 0 0 14px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 14px 16px;
+  border-radius: 12px;
+}
+
 .preview-panel {
   display: grid;
   grid-template-columns: 1.25fr 1fr;

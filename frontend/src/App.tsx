@@ -14,6 +14,7 @@ function App() {
   const [useUrl, setUseUrl] = useState(true);
   const [category, setCategory] = useState(categories[0]);
   const [analysis, setAnalysis] = useState<string>("");
+  const [demoMode, setDemoMode] = useState(false);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
 
@@ -76,9 +77,11 @@ function App() {
 
       const data = await response.json();
       setAnalysis(data.assistant ?? JSON.stringify(data.raw, null, 2));
+      setDemoMode(Boolean(data.demo));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(message);
+      setDemoMode(false);
     } finally {
       setLoading(false);
     }
@@ -158,6 +161,11 @@ function App() {
 
           <div className="result-card">
             <h2>Рекомендации</h2>
+            {demoMode && (
+              <div className="alert info">
+                Сейчас показывается демонстрационный результат, потому что для реального анализа недостаточно кредитов API.
+              </div>
+            )}
             <pre>{analysis || "Результат появится здесь."}</pre>
           </div>
         </section>
