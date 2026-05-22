@@ -1,4 +1,6 @@
 import axios from "axios";
+import { wrapper } from "axios-cookiejar-support";
+import { CookieJar } from "tough-cookie";
 import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
@@ -189,22 +191,177 @@ function findMetaImageUrl(html: string): string | null {
   return null;
 }
 
+function isMarketplaceUrl(url: string): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?(wildberries\.ru|ozon\.ru)/i.test(url);
+}
+
+function isOzonUrl(url: string): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?ozon\.ru/i.test(url);
+}
+
+function isWildberriesUrl(url: string): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?wildberries\.ru/i.test(url);
+}
+
+function parseOzonProductUrl(pageUrl: string): { path: string; id: string } | null {
+  try {
+    const parsed = new URL(pageUrl);
+    const normalizedPath = parsed.pathname.replace(/\/+$/g, "");
+    const match = normalizedPath.match(/\/product\/(.+)-(\d+)$/) || normalizedPath.match(/\/product\/(\d+)$/);
+    if (!match) return null;
+
+    if (match[2]) {
+      return {
+        path: `/product/${match[1]}-${match[2]}`,
+        id: match[2],
+      };
+    }
+
+    return {
+      path: `/product/${match[1]}`,
+      id: match[1],
+    };
+  } catch {
+    return null;
+  }
+}
+
+function buildOzonComposerUrl(pageUrl: string): string | null {
+  const parsed = parseOzonProductUrl(pageUrl);
+  if (!parsed) return null;
+  const encodedUrl = encodeURIComponent(`${parsed.path}/`);
+  return `https://www.ozon.ru/api/composer-api.bx/_action/render/?url=${encodedUrl}&page=1&use_default_date=1&lang=ru&locale=ru&pr_state=1&platform=web&product=${parsed.id}`;
+}
+
+function findFirstImageUrl(value: unknown): string | null {
+  if (typeof value === "string") {
+    if (isImageUrl(value)) return value;
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findFirstImageUrl(item);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  if (typeof value === "object" && value !== null) {
+    const objectValue = value as Record<string, unknown>;
+
+    if (typeof objectValue.coverImageUrl === "string" && isImageUrl(objectValue.coverImageUrl)) {
+      return objectValue.coverImageUrl;
+    }
+
+    if (Array.isArray(objectValue.images)) {
+      for (const item of objectValue.images) {
+        if (typeof item === "object" && item !== null) {
+          const src = (item as any).src;
+          if (typeof src === "string" && isImageUrl(src)) return src;
+        }
+        const found = findFirstImageUrl(item);
+        if (found) return found;
+      }
+    }
+
+    for (const key of Object.keys(objectValue)) {
+      const found = findFirstImageUrl(objectValue[key]);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+async function resolveOzonImageUrl(pageUrl: string): Promise<string | null> {
+  const parsed = parseOzonProductUrl(pageUrl);
+  if (!parsed) return null;
+
+  const jar = new CookieJar();
+  const client = wrapper(axios.create({
+    jar,
+    withCredentials: true,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+      Referer: "https://www.ozon.ru/",
+    },
+    validateStatus: null,
+  }));
+
+  await client.get(pageUrl);
+  const composerUrl = buildOzonComposerUrl(pageUrl);
+  if (!composerUrl) return null;
+
+  const response = await client.get(composerUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      Accept: "application/json, text/plain, */*",
+      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+      Referer: pageUrl,
+    },
+  });
+
+  if (response.status !== 200 || !response.data) {
+    return null;
+  }
+
+  const imageUrl = findFirstImageUrl(response.data);
+  return imageUrl ? normalizeResolvedUrl(imageUrl, pageUrl) : null;
+}
+
+function parseWildberriesProductId(pageUrl: string): string | null {
+  try {
+    const parsed = new URL(pageUrl);
+    const match = parsed.pathname.match(/\/catalog\/(\d+)(?:\/|$)|\/product\/(\d+)(?:\/|$)|\/goods\/(\d+)(?:\/|$)/);
+    if (!match) return null;
+    return match[1] || match[2] || match[3] || null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveWildberriesImageUrl(pageUrl: string): string | null {
+  const productId = parseWildberriesProductId(pageUrl);
+  if (!productId) return null;
+  return `https://images.wbstatic.net/c516x688/new/${productId}-1.jpg`;
+}
+
+function isAntiBotResponse(html: string, status: number): boolean {
+  if (status === 403 || status === 498) return true;
+  const lowercase = html.toLowerCase();
+  return lowercase.includes("antibot") || lowercase.includes("почти готово") || lowercase.includes("challenge page");
+}
+
 async function resolveImageUrlFromPage(pageUrl: string): Promise<string | null> {
   const response = await axios.get(pageUrl, {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
       Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     },
+    validateStatus: null,
   });
 
   const html = String(response.data);
   const imageUrl = findMetaImageUrl(html);
 
-  if (!imageUrl) {
-    return null;
+  if (imageUrl && !isAntiBotResponse(html, response.status)) {
+    return normalizeResolvedUrl(imageUrl, pageUrl);
   }
 
-  return normalizeResolvedUrl(imageUrl, pageUrl);
+  if (isOzonUrl(pageUrl)) {
+    const ozonImageUrl = await resolveOzonImageUrl(pageUrl);
+    if (ozonImageUrl) return ozonImageUrl;
+  }
+
+  if (isWildberriesUrl(pageUrl)) {
+    const wbImageUrl = resolveWildberriesImageUrl(pageUrl);
+    if (wbImageUrl) return wbImageUrl;
+  }
+
+  return imageUrl ? normalizeResolvedUrl(imageUrl, pageUrl) : null;
 }
 
 function buildPrompt(category: string | undefined, subcategory?: string, brand?: string): string {
