@@ -93,8 +93,8 @@ git push -u origin main
 
 В Render можно подключить GitHub-репозиторий и использовать `render.yaml` для определения сервисов.
 
-- `card-rating2-backend` — `web_service`, `Node`, `buildCommand: npm install && npm --workspace backend run build`, `startCommand: npm --workspace backend run start`
-- `card-rating2-frontend` — `static_site`, `Static`, `buildCommand: npm install && npm --workspace frontend run build`, `publishPath: frontend/dist`
+- `card-rating2-backend` — `web_service`, `Node`, `buildCommand: npm install --include=dev && npm --workspace backend run build`, `startCommand: npm --workspace backend run start`
+- `card-rating2-frontend` — `static_site`, `Static`, `buildCommand: npm install --include=dev && npm --workspace frontend run build`, `publishPath: frontend/dist`
 
 Для backend нужно добавить переменную окружения `SEGMIND_API_KEY` в настройках сервиса.
 

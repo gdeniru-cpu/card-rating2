@@ -53,6 +53,8 @@ interface AnalysisSection {
   weight: number;
   score: number;
   criteria: AnalysisCriterion[];
+  summary: string;
+  recommendation: string;
 }
 
 interface AiCroSection {
@@ -179,16 +181,16 @@ ${targetBrand}
     "trustBrand": 10
   },
   "sections": {
-    "productVisibility": { "title": "PRODUCT VISIBILITY", "weight": 25, "score": число, "criteria": [ ... ] },
-    "commercialMessage": { "title": "COMMERCIAL MESSAGE", "weight": 25, "score": число, "criteria": [ ... ] },
-    "visualOverload": { "title": "VISUAL OVERLOAD / SIMPLICITY", "weight": 20, "score": число, "criteria": [ ... ] },
-    "textQuality": { "title": "TEXT QUALITY ON IMAGE", "weight": 20, "score": число, "criteria": [ ... ] },
-    "visualAesthetics": { "title": "VISUAL AESTHETICS", "weight": 20, "score": число, "criteria": [ ... ] },
-    "marketplaceClickability": { "title": "MARKETPLACE CLICKABILITY", "weight": 20, "score": число, "criteria": [ ... ] },
-    "trustCredibility": { "title": "TRUST / CREDIBILITY", "weight": 10, "score": число, "criteria": [ ... ] },
-    "categoryFit": { "title": "CATEGORY FIT", "weight": 10, "score": число, "criteria": [ ... ] },
-    "informationCompleteness": { "title": "INFORMATION COMPLETENESS", "weight": 10, "score": число, "criteria": [ ... ] },
-    "brandStyle": { "title": "BRAND / STYLE", "weight": 10, "score": число, "criteria": [ ... ] }
+    "productVisibility": { "title": "PRODUCT VISIBILITY", "weight": 25, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "commercialMessage": { "title": "COMMERCIAL MESSAGE", "weight": 25, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "visualOverload": { "title": "VISUAL OVERLOAD / SIMPLICITY", "weight": 20, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "textQuality": { "title": "TEXT QUALITY ON IMAGE", "weight": 20, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "visualAesthetics": { "title": "VISUAL AESTHETICS", "weight": 20, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "marketplaceClickability": { "title": "MARKETPLACE CLICKABILITY", "weight": 20, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "trustCredibility": { "title": "TRUST / CREDIBILITY", "weight": 10, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "categoryFit": { "title": "CATEGORY FIT", "weight": 10, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "informationCompleteness": { "title": "INFORMATION COMPLETENESS", "weight": 10, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] },
+    "brandStyle": { "title": "BRAND / STYLE", "weight": 10, "score": число, "summary": строка, "recommendation": строка, "criteria": [ ... ] }
   },
   "aiCroCriteria": { "score": число, "criteria": [ ... ] },
   "category": "${categoryName}",
@@ -203,6 +205,12 @@ ${targetBrand}
   "id": число,
   "name": строка,
   "score": число (1-10),
+  "summary": строка,
+  "recommendation": строка
+}
+
+Каждый раздел должен также содержать итоговые поля:
+{
   "summary": строка,
   "recommendation": строка
 }
@@ -379,6 +387,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "PRODUCT VISIBILITY",
               weight: 25,
               score: 6,
+              summary: "Продукт видно неплохо, но можно усилить фокус и убрать лишнюю графику.",
+              recommendation: "Сделайте товар более крупным и добавьте контраст между ним и фоном.",
               criteria: [
                 {
                   id: 1,
@@ -421,6 +431,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "COMMERCIAL MESSAGE",
               weight: 25,
               score: 5,
+              summary: "Коммерческое сообщение присутствует, но пока не полностью понятно и не продаёт достаточно сильно.",
+              recommendation: "Сделайте УТП более явными, понятными и выгодными для пользователя.",
               criteria: [
                 {
                   id: 6,
@@ -463,6 +475,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "VISUAL OVERLOAD / SIMPLICITY",
               weight: 20,
               score: 5,
+              summary: "Изображение выглядит немного перегруженным визуальными элементами.",
+              recommendation: "Упростите композицию и оставьте больше пространства вокруг товара.",
               criteria: [
                 {
                   id: 11,
@@ -498,6 +512,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "TEXT QUALITY ON IMAGE",
               weight: 20,
               score: 5,
+              summary: "Текст на изображении читается, но нуждается в более чёткой иерархии.",
+              recommendation: "Снизьте объём текста и выделите главное сообщение.",
               criteria: [
                 {
                   id: 15,
@@ -533,6 +549,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "VISUAL AESTHETICS",
               weight: 20,
               score: 6,
+              summary: "Визуально картинка аккуратная, но ещё не выглядит достаточно премиально.",
+              recommendation: "Сделайте оформление более чистым и профессиональным.",
               criteria: [
                 {
                   id: 19,
@@ -575,6 +593,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "MARKETPLACE CLICKABILITY",
               weight: 20,
               score: 6,
+              summary: "Карточка в целом кликабельная, но пока не достаточно выражена среди конкурентов.",
+              recommendation: "Усилите визуальную выделяемость и лаконично донесите причину клика.",
               criteria: [
                 {
                   id: 24,
@@ -610,6 +630,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "TRUST / CREDIBILITY",
               weight: 10,
               score: 6,
+              summary: "Карточка вызывает доверие, но местами выглядит немного рекламно.",
+              recommendation: "Сделайте дизайн менее агрессивным и больше ориентируйтесь на качество товара.",
               criteria: [
                 {
                   id: 28,
@@ -638,6 +660,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
               title: "CATEGORY FIT",
               weight: 10,
               score: 6,
+              summary: "Соответствие категории есть, но можно лучше показать ключевые ожидания покупателей.",
+              recommendation: "Сфокусируйтесь на одном или двух buying trigger’ах для текущей категории.",
               criteria: [
                 {
                   id: 31,

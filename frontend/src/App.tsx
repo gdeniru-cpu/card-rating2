@@ -12,6 +12,7 @@ function App() {
   const [brand, setBrand] = useState("");
   const [analysisData, setAnalysisData] = useState<any | null>(null);
   const [analysisText, setAnalysisText] = useState<string>("");
+  const [expandedCriteria, setExpandedCriteria] = useState<Record<string, number | null>>({});
   const [demoMode, setDemoMode] = useState(false);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -94,32 +95,52 @@ function App() {
     }
   };
 
-  const renderCriterion = (criterion: any) => {
+  const toggleCriterion = (sectionKey: string, criterionId: number) => {
+    setExpandedCriteria((prev) => ({
+      ...prev,
+      [sectionKey]: prev[sectionKey] === criterionId ? null : criterionId,
+    }));
+  };
+
+  const renderCriterion = (sectionKey: string, criterion: any) => {
+    const expanded = expandedCriteria[sectionKey] === criterion.id;
     return (
       <div key={criterion.id} className="analysis-criterion">
-        <div className="analysis-criterion-header">
-          <span className="criterion-id">{criterion.id}</span>
-          <strong>{criterion.name}</strong>
+        <button
+          type="button"
+          className="criterion-toggle"
+          onClick={() => toggleCriterion(sectionKey, criterion.id)}
+        >
+          <span className="criterion-name">{criterion.name}</span>
           <span className="criterion-score">{criterion.score}/10</span>
-        </div>
-        <div className="criterion-text">
-          <p><strong>Кратко:</strong> {criterion.summary}</p>
-          <p><strong>Рекомендация:</strong> {criterion.recommendation}</p>
-        </div>
+          <span className="criterion-toggle-icon">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="criterion-text">
+            <p><strong>Кратко:</strong> {criterion.summary}</p>
+            <p><strong>Рекомендация:</strong> {criterion.recommendation}</p>
+          </div>
+        )}
       </div>
     );
   };
 
-  const renderSection = (sectionKey: string, section: any) => {
+  const renderSection = (index: number, sectionKey: string, section: any) => {
     if (!section) return null;
     return (
       <div key={sectionKey} className="analysis-section">
-        <h3>{section.title}</h3>
+        <h3>{index}. {section.title}</h3>
         <div className="section-meta">
           <span>Вес: {section.weight}%</span>
           <span>Оценка: {section.score}/10</span>
         </div>
-        {Array.isArray(section.criteria) && section.criteria.map(renderCriterion)}
+        <div className="section-criteria">
+          {Array.isArray(section.criteria) && section.criteria.map((criterion: any) => renderCriterion(sectionKey, criterion))}
+        </div>
+        <div className="section-summary">
+          <p><strong>Краткий вывод:</strong> {section.summary}</p>
+          <p><strong>Рекомендация по разделу:</strong> {section.recommendation}</p>
+        </div>
       </div>
     );
   };
@@ -224,7 +245,7 @@ function App() {
                   {analysisData.brand && <div>Бренд: {analysisData.brand}</div>}
                 </div>
 
-                {analysisData.sections && Object.entries(analysisData.sections).map(([key, section]) => renderSection(key, section))}
+                {analysisData.sections && Object.entries(analysisData.sections).map(([key, section], index) => renderSection(index + 1, key, section))}
 
                 {analysisData.aiCroCriteria && (
                   <div className="analysis-section">
