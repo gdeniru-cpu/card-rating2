@@ -17,14 +17,14 @@ app.get("/health", (_req, res) => {
 });
 
 app.post("/api/analyze", async (req, res) => {
-  const { imageUrl, imageBase64, prompt } = req.body;
+  const { imageUrl, imageBase64, pageUrl, prompt, category, subcategory, brand } = req.body;
 
-  if (!imageUrl && !imageBase64) {
-    return res.status(400).json({ error: "imageUrl or imageBase64 is required" });
+  if (!imageUrl && !imageBase64 && !pageUrl) {
+    return res.status(400).json({ error: "imageUrl, pageUrl or imageBase64 is required" });
   }
 
   try {
-    const result = await analyzeImage({ imageUrl, imageBase64, prompt });
+    const result = await analyzeImage({ imageUrl, imageBase64, pageUrl, prompt, category, subcategory, brand });
     return res.json(result);
   } catch (error: unknown) {
     console.error("analyze error", error);

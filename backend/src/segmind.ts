@@ -33,6 +33,7 @@ if (!API_KEY) {
 
 interface AnalyzeImageOptions {
   imageUrl?: string;
+  pageUrl?: string;
   imageBase64?: string;
   category?: string;
   subcategory?: string;
@@ -155,6 +156,55 @@ function parseJsonString(value: unknown): unknown {
       return value;
     }
   }
+}
+
+function isImageUrl(url: string): boolean {
+  return /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(url);
+}
+
+function normalizeResolvedUrl(url: string, baseUrl: string): string {
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch {
+    return url;
+  }
+}
+
+function findMetaImageUrl(html: string): string | null {
+  const patterns = [
+    /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+name=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+property=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
+    /<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = html.match(pattern);
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+async function resolveImageUrlFromPage(pageUrl: string): Promise<string | null> {
+  const response = await axios.get(pageUrl, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    },
+  });
+
+  const html = String(response.data);
+  const imageUrl = findMetaImageUrl(html);
+
+  if (!imageUrl) {
+    return null;
+  }
+
+  return normalizeResolvedUrl(imageUrl, pageUrl);
 }
 
 function buildPrompt(category: string | undefined, subcategory?: string, brand?: string): string {
@@ -331,7 +381,23 @@ function normalizeAssistantContent(content: unknown) {
 
 export async function analyzeImage(options: AnalyzeImageOptions) {
   const prompt = options.prompt ?? buildPrompt(options.category, options.subcategory, options.brand);
-  const imageContent = buildImageContent(options.imageUrl, options.imageBase64);
+
+  let imageUrl = options.imageUrl;
+  if (!imageUrl && options.pageUrl) {
+    imageUrl = options.pageUrl;
+  }
+
+  let resolvedImageUrl: string | undefined;
+  if (imageUrl && !isImageUrl(imageUrl)) {
+    const resolved = await resolveImageUrlFromPage(imageUrl);
+    if (!resolved) {
+      throw new Error(`Не удалось извлечь главное изображение с карточки товара: ${imageUrl}`);
+    }
+    imageUrl = resolved;
+    resolvedImageUrl = resolved;
+  }
+
+  const imageContent = buildImageContent(imageUrl, options.imageBase64);
 
   const data = {
     messages: [
@@ -360,6 +426,7 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
       raw: response.data,
       assistant: parsedAssistant ?? normalizeAssistantContent(assistantContent),
       assistantRaw: normalizeAssistantContent(assistantContent),
+      resolvedImageUrl,
     };
   } catch (error: unknown) {
     const err = error as any;

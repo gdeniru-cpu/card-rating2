@@ -6,10 +6,9 @@ const categories = ["Общие", "Электроника", "Одежда", "К�
 function App() {
   const [imageUrl, setImageUrl] = useState("");
   const [imageData, setImageData] = useState<string | null>(null);
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
   const [useUrl, setUseUrl] = useState(true);
   const [category, setCategory] = useState(categories[0]);
-  const [subcategory, setSubcategory] = useState("");
-  const [brand, setBrand] = useState("");
   const [analysisData, setAnalysisData] = useState<any | null>(null);
   const [analysisText, setAnalysisText] = useState<string>("");
   const [expandedCriteria, setExpandedCriteria] = useState<Record<string, number | null>>({});
@@ -19,10 +18,10 @@ function App() {
 
   const previewSource = useMemo(() => {
     if (useUrl) {
-      return imageUrl || null;
+      return resolvedImageUrl || imageUrl || null;
     }
     return imageData;
-  }, [useUrl, imageUrl, imageData]);
+  }, [useUrl, imageUrl, imageData, resolvedImageUrl]);
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -33,6 +32,7 @@ function App() {
       const result = reader.result as string;
       setImageData(result);
       setUseUrl(false);
+      setResolvedImageUrl(null);
     };
     reader.readAsDataURL(file);
   };
@@ -46,18 +46,22 @@ function App() {
     const useImageData = !useUrl && imageData;
 
     if (!useImageUrl && !useImageData) {
-      setError("Выберите файл или вставьте URL изображения.");
+      setError("Выберите файл или вставьте URL изображения или карточки товара.");
       return;
     }
 
     const payload: Record<string, unknown> = {
       category,
-      subcategory: subcategory.trim() || undefined,
-      brand: brand.trim() || undefined,
     };
 
     if (useImageUrl) {
-      payload.imageUrl = imageUrl.trim();
+      const trimmedUrl = imageUrl.trim();
+      const isImage = /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(trimmedUrl);
+      if (isImage) {
+        payload.imageUrl = trimmedUrl;
+      } else {
+        payload.pageUrl = trimmedUrl;
+      }
     } else if (imageData) {
       payload.imageBase64 = imageData;
     }
@@ -78,6 +82,10 @@ function App() {
       }
 
       const data = await response.json();
+      if (data.resolvedImageUrl && useImageUrl) {
+        setResolvedImageUrl(data.resolvedImageUrl);
+      }
+
       if (data.assistant && typeof data.assistant === "object") {
         setAnalysisData(data.assistant);
         setAnalysisText(JSON.stringify(data.assistant, null, 2));
@@ -155,10 +163,16 @@ function App() {
       <main>
         <section className="controls">
           <div className="switch-row">
-            <button className={useUrl ? "active" : ""} onClick={() => setUseUrl(true)}>
+            <button className={useUrl ? "active" : ""} onClick={() => {
+              setUseUrl(true);
+              setResolvedImageUrl(null);
+            }}>
               Использовать URL
             </button>
-            <button className={!useUrl ? "active" : ""} onClick={() => setUseUrl(false)}>
+            <button className={!useUrl ? "active" : ""} onClick={() => {
+              setUseUrl(false);
+              setResolvedImageUrl(null);
+            }}>
               Загрузить файл
             </button>
           </div>
@@ -174,35 +188,20 @@ function App() {
             </select>
           </label>
 
-          <label>
-            Более узкая категория (опционально)
-            <input
-              type="text"
-              placeholder="Например: смартфоны, спортивные кроссовки"
-              value={subcategory}
-              onChange={(e) => setSubcategory(e.target.value)}
-            />
-          </label>
-
-          <label>
-            Бренд (если есть)
-            <input
-              type="text"
-              placeholder="Например: Apple, Nike"
-              value={brand}
-              onChange={(e) => setBrand(e.target.value)}
-            />
-          </label>
 
           {useUrl ? (
             <label>
-              Ссылка на изображение
+              Ссылка на изображение или на карточку товара Wildberries / Ozon
               <input
                 type="url"
-                placeholder="https://example.com/image.jpg"
+                placeholder="https://www.wildberries.ru/catalog/... или https://www.ozon.ru/product/..."
                 value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
+                onChange={(e) => {
+                  setImageUrl(e.target.value);
+                  setResolvedImageUrl(null);
+                }}
               />
+              <small>Если вы вставите страницу товара Wildberries или Ozon, сервис попытается извлечь главное фото.</small>
             </label>
           ) : (
             <label>
@@ -214,6 +213,11 @@ function App() {
           <button className="analyze-button" onClick={handleAnalyze} disabled={loading}>
             {loading ? "Анализируется..." : "Получить рекомендации"}
           </button>
+          {resolvedImageUrl && (
+            <div className="alert info">
+              Извлечено изображение из товарной страницы: {resolvedImageUrl}
+            </div>
+          )}
 
           {error && <div className="alert error">{error}</div>}
         </section>
