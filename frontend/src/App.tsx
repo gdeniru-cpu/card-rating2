@@ -2,18 +2,16 @@ import { useMemo, useState } from "react";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
 const categories = ["Общие", "Электроника", "Одежда", "Красота"];
-const criteria = [
-  "Хорошо ли видно продукт",
-  "Отображены ли основные уникальные торговые предложения",
-  "Не перегружено ли изображение дополнительными, минорными элементами",
-];
 
 function App() {
   const [imageUrl, setImageUrl] = useState("");
   const [imageData, setImageData] = useState<string | null>(null);
   const [useUrl, setUseUrl] = useState(true);
   const [category, setCategory] = useState(categories[0]);
-  const [analysis, setAnalysis] = useState<string>("");
+  const [subcategory, setSubcategory] = useState("");
+  const [brand, setBrand] = useState("");
+  const [analysisData, setAnalysisData] = useState<any | null>(null);
+  const [analysisText, setAnalysisText] = useState<string>("");
   const [demoMode, setDemoMode] = useState(false);
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -40,7 +38,8 @@ function App() {
 
   const handleAnalyze = async () => {
     setError("");
-    setAnalysis("");
+    setAnalysisData(null);
+    setAnalysisText("");
 
     const useImageUrl = useUrl && imageUrl.trim().length > 0;
     const useImageData = !useUrl && imageData;
@@ -52,6 +51,8 @@ function App() {
 
     const payload: Record<string, unknown> = {
       category,
+      subcategory: subcategory.trim() || undefined,
+      brand: brand.trim() || undefined,
     };
 
     if (useImageUrl) {
@@ -76,7 +77,13 @@ function App() {
       }
 
       const data = await response.json();
-      setAnalysis(data.assistant ?? JSON.stringify(data.raw, null, 2));
+      if (data.assistant && typeof data.assistant === "object") {
+        setAnalysisData(data.assistant);
+        setAnalysisText(JSON.stringify(data.assistant, null, 2));
+      } else {
+        setAnalysisData(null);
+        setAnalysisText(String(data.assistant ?? JSON.stringify(data.raw, null, 2)));
+      }
       setDemoMode(Boolean(data.demo));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -87,11 +94,41 @@ function App() {
     }
   };
 
+  const renderCriterion = (criterion: any) => {
+    return (
+      <div key={criterion.id} className="analysis-criterion">
+        <div className="analysis-criterion-header">
+          <span className="criterion-id">{criterion.id}</span>
+          <strong>{criterion.name}</strong>
+          <span className="criterion-score">{criterion.score}/10</span>
+        </div>
+        <div className="criterion-text">
+          <p><strong>Кратко:</strong> {criterion.summary}</p>
+          <p><strong>Рекомендация:</strong> {criterion.recommendation}</p>
+        </div>
+      </div>
+    );
+  };
+
+  const renderSection = (sectionKey: string, section: any) => {
+    if (!section) return null;
+    return (
+      <div key={sectionKey} className="analysis-section">
+        <h3>{section.title}</h3>
+        <div className="section-meta">
+          <span>Вес: {section.weight}%</span>
+          <span>Оценка: {section.score}/10</span>
+        </div>
+        {Array.isArray(section.criteria) && section.criteria.map(renderCriterion)}
+      </div>
+    );
+  };
+
   return (
     <div className="app-shell">
       <header>
         <h1>Card Rating 2</h1>
-        <p>Загрузите фото карточки товара или передайте URL, чтобы получить рекомендации по улучшению.</p>
+        <p>Загрузите фото карточки товара или вставьте URL, чтобы получить структурированный анализ в JSON.</p>
       </header>
 
       <main>
@@ -116,6 +153,26 @@ function App() {
             </select>
           </label>
 
+          <label>
+            Более узкая категория (опционально)
+            <input
+              type="text"
+              placeholder="Например: смартфоны, спортивные кроссовки"
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+            />
+          </label>
+
+          <label>
+            Бренд (если есть)
+            <input
+              type="text"
+              placeholder="Например: Apple, Nike"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+            />
+          </label>
+
           {useUrl ? (
             <label>
               Ссылка на изображение
@@ -132,15 +189,6 @@ function App() {
               <input type="file" accept="image/*" onChange={handleFileChange} />
             </label>
           )}
-
-          <div className="criteria">
-            <div className="criteria-title">Критерии оценки</div>
-            <ul>
-              {criteria.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          </div>
 
           <button className="analyze-button" onClick={handleAnalyze} disabled={loading}>
             {loading ? "Анализируется..." : "Получить рекомендации"}
@@ -166,7 +214,31 @@ function App() {
                 Сейчас показывается демонстрационный результат, потому что для реального анализа недостаточно кредитов API.
               </div>
             )}
-            <pre>{analysis || "Результат появится здесь."}</pre>
+
+            {analysisData ? (
+              <div className="analysis-result">
+                <div className="analysis-summary">
+                  <div>Overall score: {analysisData.overallScore}/10</div>
+                  <div>Category: {analysisData.category}</div>
+                  {analysisData.subcategory && <div>Узкая категория: {analysisData.subcategory}</div>}
+                  {analysisData.brand && <div>Бренд: {analysisData.brand}</div>}
+                </div>
+
+                {analysisData.sections && Object.entries(analysisData.sections).map(([key, section]) => renderSection(key, section))}
+
+                {analysisData.aiCroCriteria && (
+                  <div className="analysis-section">
+                    <h3>AI-SPECIFIC CRO CRITERIA</h3>
+                    <div className="section-meta">
+                      <span>Оценка: {analysisData.aiCroCriteria.score}/10</span>
+                    </div>
+                    {Array.isArray(analysisData.aiCroCriteria.criteria) && analysisData.aiCroCriteria.criteria.map(renderCriterion)}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <pre>{analysisText || "Результат появится здесь."}</pre>
+            )}
           </div>
         </section>
       </main>
