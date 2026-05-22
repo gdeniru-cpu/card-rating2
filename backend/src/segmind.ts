@@ -29,8 +29,11 @@ for (const candidate of envPaths) {
   }
 }
 
-if (!API_KEY) {
-  throw new Error("SEGMIND_API_KEY is not defined in environment variables or in any .env file");
+function getSegmindApiKey(): string {
+  if (!API_KEY) {
+    throw new Error("SEGMIND_API_KEY is not defined in environment variables or in any .env file");
+  }
+  return API_KEY;
 }
 
 interface AnalyzeImageOptions {
@@ -571,7 +574,7 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
   try {
     const response = await axios.post(API_URL, data, {
       headers: {
-        "x-api-key": API_KEY,
+        "x-api-key": getSegmindApiKey(),
         "Content-Type": "application/json",
       },
     });
