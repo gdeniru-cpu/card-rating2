@@ -183,6 +183,15 @@ function isImageUrl(url: string): boolean {
     || /^https?:\/\/basket-\d+\.wbbasket\.ru\//i.test(url);
 }
 
+function isUsableProductImageUrl(url: string): boolean {
+  const normalized = url.toLowerCase();
+  if (!isImageUrl(url)) return false;
+  if (normalized.includes("/abt-challenge/")) return false;
+  if (normalized.includes("/captcha")) return false;
+  if (normalized.endsWith(".css") || normalized.endsWith(".js") || normalized.endsWith(".woff2")) return false;
+  return true;
+}
+
 function normalizeInputUrl(url: string): string {
   const trimmed = url.trim();
   if (/^\d{6,}$/.test(trimmed)) {
@@ -257,7 +266,8 @@ function extractImageUrlFromText(text: string): string | null {
   for (const pattern of patterns) {
     const match = normalized.match(pattern);
     if (match?.[0]) {
-      return decodeHtmlAttribute(match[0]);
+      const imageUrl = decodeHtmlAttribute(match[0]);
+      if (isUsableProductImageUrl(imageUrl)) return imageUrl;
     }
   }
 
@@ -330,7 +340,7 @@ function findFirstImageUrl(value: unknown): string | null {
   if (typeof value === "string") {
     const extracted = extractImageUrlFromText(value);
     if (extracted) return extracted;
-    if (isImageUrl(value)) return value;
+    if (isUsableProductImageUrl(value)) return value;
     return null;
   }
 
@@ -345,7 +355,7 @@ function findFirstImageUrl(value: unknown): string | null {
   if (typeof value === "object" && value !== null) {
     const objectValue = value as Record<string, unknown>;
 
-    if (typeof objectValue.coverImageUrl === "string" && isImageUrl(objectValue.coverImageUrl)) {
+    if (typeof objectValue.coverImageUrl === "string" && isUsableProductImageUrl(objectValue.coverImageUrl)) {
       return objectValue.coverImageUrl;
     }
 
@@ -353,7 +363,7 @@ function findFirstImageUrl(value: unknown): string | null {
       for (const item of objectValue.images) {
         if (typeof item === "object" && item !== null) {
           const src = (item as any).src;
-          if (typeof src === "string" && isImageUrl(src)) return src;
+          if (typeof src === "string" && isUsableProductImageUrl(src)) return src;
         }
         const found = findFirstImageUrl(item);
         if (found) return found;
