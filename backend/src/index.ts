@@ -4,7 +4,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-import { analyzeImage } from "./segmind";
+import { analyzeImage, resolveImageSource } from "./segmind";
 
 const app = express();
 const port = Number(process.env.BACKEND_PORT ?? 4000);
@@ -28,6 +28,27 @@ app.post("/api/analyze", async (req, res) => {
     return res.json(result);
   } catch (error: unknown) {
     console.error("analyze error", error);
+    const err = error as any;
+    return res.status(err.response?.status ?? 500).json({
+      error: err.message ?? "Unexpected error",
+      details: err.response?.data ?? null,
+    });
+  }
+});
+
+app.post("/api/resolve-image", async (req, res) => {
+  const { imageUrl, pageUrl } = req.body;
+  const sourceUrl = imageUrl || pageUrl;
+
+  if (!sourceUrl) {
+    return res.status(400).json({ error: "imageUrl or pageUrl is required" });
+  }
+
+  try {
+    const resolvedImageUrl = await resolveImageSource(sourceUrl);
+    return res.json({ resolvedImageUrl });
+  } catch (error: unknown) {
+    console.error("resolve image error", error);
     const err = error as any;
     return res.status(err.response?.status ?? 500).json({
       error: err.message ?? "Unexpected error",

@@ -1,7 +1,18 @@
 import { useMemo, useState } from "react";
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000";
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL
+  ?? (typeof window !== "undefined" && window.location.hostname.endsWith("onrender.com")
+    ? "https://card-rating2-backend.onrender.com"
+    : "http://localhost:4000");
 const categories = ["Общие", "Электроника", "Одежда", "Красота"];
+
+const requestTimeoutMs = 120000;
+
+const isDirectImageUrl = (url: string) => (
+  /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(url)
+  || /^https?:\/\/(?:ir-\d+\.)?ozone\.ru\/s3\//i.test(url)
+  || /^https?:\/\/basket-\d+\.wbbasket\.ru\//i.test(url)
+);
 
 function App() {
   const [imageUrl, setImageUrl] = useState("");
@@ -18,7 +29,8 @@ function App() {
 
   const previewSource = useMemo(() => {
     if (useUrl) {
-      return resolvedImageUrl || imageUrl || null;
+      const trimmedUrl = imageUrl.trim();
+      return resolvedImageUrl || (isDirectImageUrl(trimmedUrl) ? trimmedUrl : null);
     }
     return imageData;
   }, [useUrl, imageUrl, imageData, resolvedImageUrl]);
@@ -56,8 +68,7 @@ function App() {
 
     if (useImageUrl) {
       const trimmedUrl = imageUrl.trim();
-      const isImage = /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(trimmedUrl);
-      if (isImage) {
+      if (isDirectImageUrl(trimmedUrl)) {
         payload.imageUrl = trimmedUrl;
       } else {
         payload.pageUrl = trimmedUrl;
@@ -69,14 +80,18 @@ function App() {
     setLoading(true);
 
     try {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), requestTimeoutMs);
       const response = await fetch(`${apiBaseUrl}/api/analyze`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: controller.signal,
       });
+      window.clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const body = await response.json();
+        const body = await response.json().catch(() => ({ error: "РћС€РёР±РєР° Р·Р°РїСЂРѕСЃР°" }));
         const details = body.details ? `\n${JSON.stringify(body.details, null, 2)}` : "";
         throw new Error(`${body.error ?? "Ошибка запроса"}${details}`);
       }
@@ -95,7 +110,9 @@ function App() {
       }
       setDemoMode(Boolean(data.demo));
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = err instanceof DOMException && err.name === "AbortError"
+        ? "Анализ занял слишком много времени. Попробуйте прямую ссылку на фото или загрузите файл."
+        : err instanceof Error ? err.message : String(err);
       setError(message);
       setDemoMode(false);
     } finally {

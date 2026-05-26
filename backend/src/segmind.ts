@@ -10,6 +10,9 @@ dotenv.config({
 });
 
 const API_URL = "https://api.segmind.com/v1/gpt-5.5";
+const MARKETPLACE_TIMEOUT_MS = 12000;
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 20000;
+const SEGMIND_TIMEOUT_MS = 90000;
 
 const envPaths = [
   path.resolve(process.cwd(), ".env"),
@@ -370,9 +373,10 @@ async function resolveOzonImageUrl(pageUrl: string): Promise<string | null> {
       },
       validateStatus: null,
       maxRedirects: 5,
+      timeout: MARKETPLACE_TIMEOUT_MS,
     })) as any;
 
-    await client.get(normalizedPageUrl, { maxRedirects: 5 });
+    await client.get(normalizedPageUrl, { maxRedirects: 5, timeout: MARKETPLACE_TIMEOUT_MS });
     const composerUrl = buildOzonComposerUrl(normalizedPageUrl);
     if (!composerUrl) return null;
 
@@ -384,6 +388,7 @@ async function resolveOzonImageUrl(pageUrl: string): Promise<string | null> {
         Referer: normalizedPageUrl,
       },
       maxRedirects: 5,
+      timeout: MARKETPLACE_TIMEOUT_MS,
     });
 
     if (response.status !== 200 || !response.data) {
@@ -463,6 +468,7 @@ async function imageExists(url: string, referer?: string): Promise<boolean> {
       },
       validateStatus: null,
       maxRedirects: 5,
+      timeout: MARKETPLACE_TIMEOUT_MS,
     });
 
     return response.status === 200 && String(response.headers["content-type"] ?? "").startsWith("image/");
@@ -487,6 +493,7 @@ async function resolveWildberriesImageUrl(pageUrl: string): Promise<string | nul
       },
       validateStatus: null,
       maxRedirects: 10,
+      timeout: MARKETPLACE_TIMEOUT_MS,
     });
 
     if (response.status === 200 && response.data) {
@@ -532,6 +539,7 @@ async function resolveImageUrlFromPage(pageUrl: string): Promise<string | null> 
       },
       validateStatus: null,
       maxRedirects: 5,
+      timeout: MARKETPLACE_TIMEOUT_MS,
     });
 
     const html = String(response.data);
@@ -545,6 +553,18 @@ async function resolveImageUrlFromPage(pageUrl: string): Promise<string | null> 
   } catch {
     return null;
   }
+}
+
+export async function resolveImageSource(sourceUrl: string): Promise<string> {
+  const normalizedUrl = normalizeInputUrl(sourceUrl);
+  if (isImageUrl(normalizedUrl)) return normalizedUrl;
+
+  const resolved = await resolveImageUrlFromPage(normalizedUrl);
+  if (!resolved) {
+    throw new Error(`Не удалось извлечь главное изображение с карточки товара: ${sourceUrl}`);
+  }
+
+  return resolved;
 }
 
 function buildPrompt(category: string | undefined, subcategory?: string, brand?: string): string {
@@ -698,7 +718,7 @@ function buildImageContent(imageUrl?: string, imageBase64?: string) {
   };
 }
 
-async function downloadImageBase64(imageUrl: string): Promise<string | undefined> {
+async function downloadImageDataUrl(imageUrl: string): Promise<string | undefined> {
   try {
     const response = await axios.get(imageUrl, {
       responseType: "arraybuffer",
@@ -708,10 +728,13 @@ async function downloadImageBase64(imageUrl: string): Promise<string | undefined
       },
       validateStatus: null,
       maxRedirects: 10,
+      timeout: IMAGE_DOWNLOAD_TIMEOUT_MS,
     });
 
     if (response.status !== 200 || !response.data) return undefined;
-    return Buffer.from(response.data).toString("base64");
+    const contentType = String(response.headers["content-type"] ?? "image/jpeg").split(";")[0];
+    const mimeType = contentType.startsWith("image/") ? contentType : "image/jpeg";
+    return `data:${mimeType};base64,${Buffer.from(response.data).toString("base64")}`;
   } catch {
     return undefined;
   }
@@ -750,16 +773,13 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
   let imageBase64 = options.imageBase64;
 
   if (imageUrl && !isImageUrl(imageUrl)) {
-    const resolved = await resolveImageUrlFromPage(imageUrl);
-    if (!resolved) {
-      throw new Error(`Не удалось извлечь главное изображение с карточки товара: ${imageUrl}`);
-    }
+    const resolved = await resolveImageSource(imageUrl);
     imageUrl = resolved;
     resolvedImageUrl = resolved;
   }
 
   if (!imageBase64 && imageUrl && isImageUrl(imageUrl)) {
-    imageBase64 = await downloadImageBase64(imageUrl);
+    imageBase64 = await downloadImageDataUrl(imageUrl);
   }
 
   const imageContent = buildImageContent(imageBase64 ? undefined : imageUrl, imageBase64);
@@ -782,6 +802,7 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
         "x-api-key": getSegmindApiKey(),
         "Content-Type": "application/json",
       },
+      timeout: SEGMIND_TIMEOUT_MS,
     });
 
     const assistantContent = response.data.choices?.[0]?.message?.content;

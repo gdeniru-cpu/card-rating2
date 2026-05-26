@@ -17,3 +17,6 @@ services:
     branch: main
     buildCommand: npm install --include=dev && npm --workspace frontend run build
     publishPath: frontend/dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://card-rating2-backend.onrender.com
