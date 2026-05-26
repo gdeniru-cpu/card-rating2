@@ -11,6 +11,7 @@ dotenv.config({
 
 const API_URL = "https://api.segmind.com/v1/gpt-5.5";
 const MARKETPLACE_TIMEOUT_MS = 12000;
+const IMAGE_PROBE_TIMEOUT_MS = 5000;
 const IMAGE_DOWNLOAD_TIMEOUT_MS = 20000;
 const SEGMIND_TIMEOUT_MS = 90000;
 
@@ -174,6 +175,9 @@ function isImageUrl(url: string): boolean {
 
 function normalizeInputUrl(url: string): string {
   const trimmed = url.trim();
+  if (/^\d{6,}$/.test(trimmed)) {
+    return `https://www.ozon.ru/product/${trimmed}/`;
+  }
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^(?:www\.)?(?:wildberries\.ru|ozon\.ru)\//i.test(trimmed)) {
     return `https://${trimmed}`;
@@ -449,29 +453,44 @@ function buildWildberriesImageCandidates(productId: string): string[] {
   const volume = Math.floor(Number(productId) / 100000);
   const part = Math.floor(Number(productId) / 1000);
   const basketNumber = getWildberriesBasketNumber(productId);
-  const basketNumbers = [
+  const priorityBasketNumbers = [
     basketNumber,
     basketNumber - 1,
     basketNumber + 1,
     basketNumber - 2,
     basketNumber + 2,
   ].filter((value, index, values) => value > 0 && value <= 80 && values.indexOf(value) === index);
+  const allBasketNumbers = Array.from({ length: 80 }, (_value, index) => index + 1)
+    .filter((value) => !priorityBasketNumbers.includes(value));
+  const basketNumbers = [...priorityBasketNumbers, ...allBasketNumbers];
 
-  const cdnCandidates = basketNumbers.flatMap((candidateBasketNumber) => {
+  const candidateFor = (candidateBasketNumber: number, imagePath: string) => {
     const host = getWildberriesBasketHost(candidateBasketNumber);
-    return [
-      `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.webp`,
-      `https://${host}/vol${volume}/part${part}/${productId}/images/c516x688/1.webp`,
-      `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.jpg`,
-    ];
-  });
+    return `https://${host}/vol${volume}/part${part}/${productId}/images/${imagePath}`;
+  };
 
   return [
-    ...cdnCandidates,
+    ...basketNumbers.map((candidateBasketNumber) => candidateFor(candidateBasketNumber, "big/1.webp")),
+    ...basketNumbers.map((candidateBasketNumber) => candidateFor(candidateBasketNumber, "c516x688/1.webp")),
+    ...basketNumbers.map((candidateBasketNumber) => candidateFor(candidateBasketNumber, "big/1.jpg")),
     `https://images.wbstatic.net/c1000x1500/new/${productId}-1.jpg`,
     `https://images.wbstatic.net/c800x1200/new/${productId}-1.jpg`,
     `https://images.wbstatic.net/c516x688/new/${productId}-1.jpg`,
   ];
+}
+
+async function findFirstExistingImage(urls: string[], referer?: string): Promise<string | null> {
+  const uniqueUrls = urls.filter((url, index, values) => values.indexOf(url) === index);
+  const batchSize = 16;
+
+  for (let start = 0; start < uniqueUrls.length; start += batchSize) {
+    const batch = uniqueUrls.slice(start, start + batchSize);
+    const checks = await Promise.all(batch.map(async (url) => (await imageExists(url, referer) ? url : null)));
+    const found = checks.find((url): url is string => Boolean(url));
+    if (found) return found;
+  }
+
+  return null;
 }
 
 async function imageExists(url: string, referer?: string): Promise<boolean> {
@@ -485,7 +504,7 @@ async function imageExists(url: string, referer?: string): Promise<boolean> {
       },
       validateStatus: null,
       maxRedirects: 5,
-      timeout: MARKETPLACE_TIMEOUT_MS,
+      timeout: IMAGE_PROBE_TIMEOUT_MS,
     });
 
     return response.status === 200 && String(response.headers["content-type"] ?? "").startsWith("image/");
@@ -521,11 +540,7 @@ async function resolveWildberriesImageUrl(pageUrl: string): Promise<string | nul
     // ignore and proceed with static image candidates
   }
 
-  for (const candidate of buildWildberriesImageCandidates(productId)) {
-    if (await imageExists(candidate, normalizedPageUrl)) return candidate;
-  }
-
-  return null;
+  return findFirstExistingImage(buildWildberriesImageCandidates(productId), normalizedPageUrl);
 }
 
 function isAntiBotResponse(html: string, status: number): boolean {
