@@ -22,14 +22,20 @@ const envPaths = [
 ];
 
 let API_KEY = process.env.SEGMIND_API_KEY;
+let FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
 
 for (const candidate of envPaths) {
-  if (API_KEY) break;
   if (!fs.existsSync(candidate)) continue;
   const envContent = fs.readFileSync(candidate, "utf-8");
-  const match = envContent.match(/^SEGMIND_API_KEY\s*=\s*(.*)$/m);
-  if (match) {
-    API_KEY = match[1].trim();
+  const segmindMatch = envContent.match(/^SEGMIND_API_KEY\s*=\s*(.*)$/m);
+  const firecrawlMatch = envContent.match(/^FIRECRAWL_API_KEY\s*=\s*(.*)$/m);
+
+  if (!API_KEY && segmindMatch) {
+    API_KEY = segmindMatch[1].trim();
+  }
+
+  if (!FIRECRAWL_API_KEY && firecrawlMatch) {
+    FIRECRAWL_API_KEY = firecrawlMatch[1].trim();
   }
 }
 
@@ -38,6 +44,10 @@ function getSegmindApiKey(): string {
     throw new Error("SEGMIND_API_KEY is not defined in environment variables or in any .env file");
   }
   return API_KEY;
+}
+
+function getFirecrawlApiKey(): string | null {
+  return FIRECRAWL_API_KEY || null;
 }
 
 interface AnalyzeImageOptions {
@@ -359,9 +369,48 @@ function findFirstImageUrl(value: unknown): string | null {
   return null;
 }
 
+async function resolveOzonImageUrlFromFirecrawl(pageUrl: string): Promise<string | null> {
+  const apiKey = getFirecrawlApiKey();
+  if (!apiKey) return null;
+
+  try {
+    const response = await axios.post("https://api.firecrawl.dev/v2/scrape", {
+      url: pageUrl,
+      formats: ["html", "rawHtml", "markdown", "images"],
+      onlyMainContent: false,
+      waitFor: 3000,
+      timeout: 60000,
+      mobile: false,
+      removeBase64Images: true,
+      blockAds: false,
+      proxy: "auto",
+      location: {
+        country: "RU",
+        languages: ["ru-RU", "ru"],
+      },
+    }, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      validateStatus: null,
+      timeout: 70000,
+    });
+
+    if (response.status !== 200 || !response.data) return null;
+    const imageUrl = findFirstImageUrl(response.data);
+    return imageUrl ? normalizeResolvedUrl(imageUrl, pageUrl) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveOzonImageUrl(pageUrl: string): Promise<string | null> {
   const parsed = parseOzonProductUrl(pageUrl);
   if (!parsed) return null;
+
+  const firecrawlImageUrl = await resolveOzonImageUrlFromFirecrawl(normalizeInputUrl(pageUrl));
+  if (firecrawlImageUrl) return firecrawlImageUrl;
 
   try {
     const normalizedPageUrl = normalizeInputUrl(pageUrl);
@@ -593,6 +642,10 @@ export async function resolveImageSource(sourceUrl: string): Promise<string> {
 
   const resolved = await resolveImageUrlFromPage(normalizedUrl);
   if (!resolved) {
+    if (isOzonUrl(normalizedUrl) && !getFirecrawlApiKey()) {
+      throw new Error("Для извлечения фото Ozon укажите FIRECRAWL_API_KEY на backend или вставьте прямую ссылку на изображение.");
+    }
+
     throw new Error(`Не удалось извлечь главное изображение с карточки товара: ${sourceUrl}`);
   }
 

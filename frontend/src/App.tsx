@@ -210,15 +210,15 @@ function App() {
             <label>
               Ссылка на изображение или на карточку товара Wildberries / Ozon
               <input
-                type="url"
-                placeholder="https://www.wildberries.ru/catalog/... или https://www.ozon.ru/product/..."
+                type="text"
+                placeholder="https://www.wildberries.ru/catalog/... или https://www.ozon.ru/product/... или 144282869"
                 value={imageUrl}
                 onChange={(e) => {
                   setImageUrl(e.target.value);
                   setResolvedImageUrl(null);
                 }}
               />
-              <small>Если вы вставите страницу товара Wildberries или Ozon, сервис попытается извлечь главное фото.</small>
+              <small>Для Ozon URL или ID нужен настроенный Firecrawl на backend.</small>
             </label>
           ) : (
             <label>
