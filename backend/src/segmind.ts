@@ -164,7 +164,18 @@ function parseJsonString(value: unknown): unknown {
 }
 
 function isImageUrl(url: string): boolean {
-  return /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(url);
+  return /\.(jpe?g|png|webp|avif|gif|svg)(?:[\?#]|$)/i.test(url)
+    || /^https?:\/\/(?:ir-\d+\.)?ozone\.ru\/s3\//i.test(url)
+    || /^https?:\/\/basket-\d+\.wbbasket\.ru\//i.test(url);
+}
+
+function normalizeInputUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^(?:www\.)?(?:wildberries\.ru|ozon\.ru)\//i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
 }
 
 function normalizeResolvedUrl(url: string, baseUrl: string): string {
@@ -176,22 +187,72 @@ function normalizeResolvedUrl(url: string, baseUrl: string): string {
 }
 
 function findMetaImageUrl(html: string): string | null {
-  const patterns = [
-    /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-    /<meta[^>]+name=["']og:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-    /<meta[^>]+property=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-    /<meta[^>]+name=["']twitter:image["'][^>]*content=["']([^"']+)["'][^>]*>/i,
-    /<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["'][^>]*>/i,
-  ];
+  const attributePattern = /([\w:-]+)\s*=\s*(["'])(.*?)\2/g;
+  const imageMetaNames = new Set(["og:image", "og:image:url", "twitter:image", "twitter:image:src"]);
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match?.[1]) {
-      return match[1];
+  for (const tagMatch of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const attrs: Record<string, string> = {};
+    for (const attrMatch of tagMatch[0].matchAll(attributePattern)) {
+      attrs[attrMatch[1].toLowerCase()] = attrMatch[3];
+    }
+
+    const metaName = (attrs.property || attrs.name || attrs.itemprop || "").toLowerCase();
+    if (imageMetaNames.has(metaName) && attrs.content) {
+      return attrs.content;
+    }
+  }
+
+  for (const tagMatch of html.matchAll(/<link\b[^>]*>/gi)) {
+    const attrs: Record<string, string> = {};
+    for (const attrMatch of tagMatch[0].matchAll(attributePattern)) {
+      attrs[attrMatch[1].toLowerCase()] = attrMatch[3];
+    }
+
+    if ((attrs.rel || "").toLowerCase() === "image_src" && attrs.href) {
+      return attrs.href;
     }
   }
 
   return null;
+}
+
+function decodeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function extractImageUrlFromText(text: string): string | null {
+  const normalized = text
+    .replace(/\\u002F/g, "/")
+    .replace(/\\+\//g, "/")
+    .replace(/\\u0026/g, "&");
+  const patterns = [
+    /https?:\/\/(?:ir-\d+\.)?ozone\.ru\/s3\/[^"'\\<>\s]+/i,
+    /https?:\/\/basket-\d+\.wbbasket\.ru\/[^"'\\<>\s]+/i,
+    /https?:\/\/images\.wbstatic\.net\/[^"'\\<>\s]+/i,
+    /https?:\/\/[^"'\\<>\s]+\.(?:jpe?g|png|webp|avif|gif|svg)(?:\?[^"'\\<>\s]*)?/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match?.[0]) {
+      return decodeHtmlAttribute(match[0]);
+    }
+  }
+
+  return null;
+}
+
+function findImageUrlInHtml(html: string): string | null {
+  const galleryMatch = html.match(/<[^>]+data-widget=["']webGallery["'][\s\S]*?(?=<[^>]+data-widget=|<\/body>|$)/i);
+  const galleryImage = galleryMatch ? extractImageUrlFromText(galleryMatch[0]) : null;
+  if (galleryImage) return galleryImage;
+
+  return extractImageUrlFromText(html);
 }
 
 function isMarketplaceUrl(url: string): boolean {
@@ -208,22 +269,34 @@ function isWildberriesUrl(url: string): boolean {
 
 function parseOzonProductUrl(pageUrl: string): { path: string; id: string } | null {
   try {
-    const parsed = new URL(pageUrl);
-    const normalizedPath = parsed.pathname.replace(/\/+$/g, "");
-    const match = normalizedPath.match(/\/product\/(.+)-(\d+)$/) || normalizedPath.match(/\/product\/(\d+)$/);
-    if (!match) return null;
+    const parsed = new URL(normalizeInputUrl(pageUrl));
+    const pathname = parsed.pathname.replace(/\/+$/g, "");
+    const segments = pathname.split("/").filter(Boolean);
+    let id: string | null = null;
+    let path = pathname;
 
-    if (match[2]) {
-      return {
-        path: `/product/${match[1]}-${match[2]}`,
-        id: match[2],
-      };
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+      const segment = segments[i];
+      const exact = segment.match(/^(\d+)$/);
+      const sluggified = segment.match(/-(\d+)$/);
+      if (exact) {
+        id = exact[1];
+        path = `/${segments.slice(0, i + 1).join("/")}`;
+        break;
+      }
+      if (sluggified) {
+        id = sluggified[1];
+        path = `/${segments.slice(0, i + 1).join("/")}`;
+        break;
+      }
     }
 
-    return {
-      path: `/product/${match[1]}`,
-      id: match[1],
-    };
+    if (!id) return null;
+    if (!path.endsWith("/")) {
+      path += "/";
+    }
+
+    return { path, id };
   } catch {
     return null;
   }
@@ -232,12 +305,14 @@ function parseOzonProductUrl(pageUrl: string): { path: string; id: string } | nu
 function buildOzonComposerUrl(pageUrl: string): string | null {
   const parsed = parseOzonProductUrl(pageUrl);
   if (!parsed) return null;
-  const encodedUrl = encodeURIComponent(`${parsed.path}/`);
+  const encodedUrl = encodeURIComponent(parsed.path);
   return `https://www.ozon.ru/api/composer-api.bx/_action/render/?url=${encodedUrl}&page=1&use_default_date=1&lang=ru&locale=ru&pr_state=1&platform=web&product=${parsed.id}`;
 }
 
 function findFirstImageUrl(value: unknown): string | null {
   if (typeof value === "string") {
+    const extracted = extractImageUrlFromText(value);
+    if (extracted) return extracted;
     if (isImageUrl(value)) return value;
     return null;
   }
@@ -281,55 +356,152 @@ async function resolveOzonImageUrl(pageUrl: string): Promise<string | null> {
   const parsed = parseOzonProductUrl(pageUrl);
   if (!parsed) return null;
 
-  const jar = new CookieJar();
-  const client = wrapper(axios.create({
-    jar,
-    withCredentials: true,
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-      Referer: "https://www.ozon.ru/",
-    },
-    validateStatus: null,
-  }));
-
-  await client.get(pageUrl);
-  const composerUrl = buildOzonComposerUrl(pageUrl);
-  if (!composerUrl) return null;
-
-  const response = await client.get(composerUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      Accept: "application/json, text/plain, */*",
-      "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-      Referer: pageUrl,
-    },
-  });
-
-  if (response.status !== 200 || !response.data) {
-    return null;
-  }
-
-  const imageUrl = findFirstImageUrl(response.data);
-  return imageUrl ? normalizeResolvedUrl(imageUrl, pageUrl) : null;
-}
-
-function parseWildberriesProductId(pageUrl: string): string | null {
   try {
-    const parsed = new URL(pageUrl);
-    const match = parsed.pathname.match(/\/catalog\/(\d+)(?:\/|$)|\/product\/(\d+)(?:\/|$)|\/goods\/(\d+)(?:\/|$)/);
-    if (!match) return null;
-    return match[1] || match[2] || match[3] || null;
+    const normalizedPageUrl = normalizeInputUrl(pageUrl);
+    const jar = new CookieJar();
+    const client = wrapper(axios.create({
+      jar,
+      withCredentials: true,
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        Referer: "https://www.ozon.ru/",
+      },
+      validateStatus: null,
+      maxRedirects: 5,
+    })) as any;
+
+    await client.get(normalizedPageUrl, { maxRedirects: 5 });
+    const composerUrl = buildOzonComposerUrl(normalizedPageUrl);
+    if (!composerUrl) return null;
+
+    const response = await client.get(composerUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "application/json, text/plain, */*",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        Referer: normalizedPageUrl,
+      },
+      maxRedirects: 5,
+    });
+
+    if (response.status !== 200 || !response.data) {
+      return null;
+    }
+
+    const imageUrl = findFirstImageUrl(response.data);
+    return imageUrl ? normalizeResolvedUrl(imageUrl, normalizedPageUrl) : null;
   } catch {
     return null;
   }
 }
 
-function resolveWildberriesImageUrl(pageUrl: string): string | null {
+function parseWildberriesProductId(pageUrl: string): string | null {
+  try {
+    const parsed = new URL(normalizeInputUrl(pageUrl));
+    const match = parsed.pathname.match(/\/catalog\/(\d+)(?:\/|$)|\/catalog\/(\d+)\/detail\.aspx(?:\?|$)|\/product\/(\d+)(?:\/|$)|\/goods\/(\d+)(?:\/|$)/);
+    if (!match) return null;
+    return match[1] || match[2] || match[3] || match[4] || null;
+  } catch {
+    return null;
+  }
+}
+
+function getWildberriesBasketHost(productId: string): string {
+  const volume = Math.floor(Number(productId) / 100000);
+
+  if (volume <= 143) return "basket-01.wbbasket.ru";
+  if (volume <= 287) return "basket-02.wbbasket.ru";
+  if (volume <= 431) return "basket-03.wbbasket.ru";
+  if (volume <= 719) return "basket-04.wbbasket.ru";
+  if (volume <= 1007) return "basket-05.wbbasket.ru";
+  if (volume <= 1061) return "basket-06.wbbasket.ru";
+  if (volume <= 1115) return "basket-07.wbbasket.ru";
+  if (volume <= 1169) return "basket-08.wbbasket.ru";
+  if (volume <= 1313) return "basket-09.wbbasket.ru";
+  if (volume <= 1601) return "basket-10.wbbasket.ru";
+  if (volume <= 1655) return "basket-11.wbbasket.ru";
+  if (volume <= 1919) return "basket-12.wbbasket.ru";
+  if (volume <= 2045) return "basket-13.wbbasket.ru";
+  if (volume <= 2189) return "basket-14.wbbasket.ru";
+  if (volume <= 2405) return "basket-15.wbbasket.ru";
+  if (volume <= 2621) return "basket-16.wbbasket.ru";
+  if (volume <= 2837) return "basket-17.wbbasket.ru";
+  if (volume <= 3053) return "basket-18.wbbasket.ru";
+  if (volume <= 3269) return "basket-19.wbbasket.ru";
+  if (volume <= 3485) return "basket-20.wbbasket.ru";
+  if (volume <= 3701) return "basket-21.wbbasket.ru";
+
+  const basketNumber = Math.ceil((volume - 3701) / 216) + 21;
+  return `basket-${String(basketNumber).padStart(2, "0")}.wbbasket.ru`;
+}
+
+function buildWildberriesImageCandidates(productId: string): string[] {
+  const volume = Math.floor(Number(productId) / 100000);
+  const part = Math.floor(Number(productId) / 1000);
+  const host = getWildberriesBasketHost(productId);
+
+  return [
+    `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.webp`,
+    `https://${host}/vol${volume}/part${part}/${productId}/images/c516x688/1.webp`,
+    `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.jpg`,
+    `https://images.wbstatic.net/c1000x1500/new/${productId}-1.jpg`,
+    `https://images.wbstatic.net/c800x1200/new/${productId}-1.jpg`,
+    `https://images.wbstatic.net/c516x688/new/${productId}-1.jpg`,
+  ];
+}
+
+async function imageExists(url: string, referer?: string): Promise<boolean> {
+  try {
+    const response = await axios.head(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        ...(referer ? { Referer: referer } : {}),
+      },
+      validateStatus: null,
+      maxRedirects: 5,
+    });
+
+    return response.status === 200 && String(response.headers["content-type"] ?? "").startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+async function resolveWildberriesImageUrl(pageUrl: string): Promise<string | null> {
   const productId = parseWildberriesProductId(pageUrl);
   if (!productId) return null;
-  return `https://images.wbstatic.net/c516x688/new/${productId}-1.jpg`;
+  const normalizedPageUrl = normalizeInputUrl(pageUrl);
+
+  const cardUrl = `https://card.wb.ru/cards/detail?appType=1&curr=rub&dest=-1257786,-1299317,-1260896,-1296735&regions=80,64,38,4,40,33,1,48,22,66,30,70,83,31,68,69,76,79,10,66&nm=${productId}`;
+  try {
+    const response = await axios.get(cardUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "application/json, text/plain, */*",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        Referer: "https://www.wildberries.ru/",
+      },
+      validateStatus: null,
+      maxRedirects: 10,
+    });
+
+    if (response.status === 200 && response.data) {
+      const imageUrl = findFirstImageUrl(response.data);
+      if (imageUrl) return normalizeResolvedUrl(imageUrl, normalizedPageUrl);
+    }
+  } catch {
+    // ignore and proceed with static image candidates
+  }
+
+  for (const candidate of buildWildberriesImageCandidates(productId)) {
+    if (await imageExists(candidate, normalizedPageUrl)) return candidate;
+  }
+
+  return null;
 }
 
 function isAntiBotResponse(html: string, status: number): boolean {
@@ -339,32 +511,40 @@ function isAntiBotResponse(html: string, status: number): boolean {
 }
 
 async function resolveImageUrlFromPage(pageUrl: string): Promise<string | null> {
-  const response = await axios.get(pageUrl, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    },
-    validateStatus: null,
-  });
+  const normalizedPageUrl = normalizeInputUrl(pageUrl);
 
-  const html = String(response.data);
-  const imageUrl = findMetaImageUrl(html);
-
-  if (imageUrl && !isAntiBotResponse(html, response.status)) {
-    return normalizeResolvedUrl(imageUrl, pageUrl);
-  }
-
-  if (isOzonUrl(pageUrl)) {
-    const ozonImageUrl = await resolveOzonImageUrl(pageUrl);
+  if (isOzonUrl(normalizedPageUrl)) {
+    const ozonImageUrl = await resolveOzonImageUrl(normalizedPageUrl);
     if (ozonImageUrl) return ozonImageUrl;
   }
 
-  if (isWildberriesUrl(pageUrl)) {
-    const wbImageUrl = resolveWildberriesImageUrl(pageUrl);
+  if (isWildberriesUrl(normalizedPageUrl)) {
+    const wbImageUrl = await resolveWildberriesImageUrl(normalizedPageUrl);
     if (wbImageUrl) return wbImageUrl;
   }
 
-  return imageUrl ? normalizeResolvedUrl(imageUrl, pageUrl) : null;
+  try {
+    const response = await axios.get(normalizedPageUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+      },
+      validateStatus: null,
+      maxRedirects: 5,
+    });
+
+    const html = String(response.data);
+    const imageUrl = findMetaImageUrl(html) ?? findImageUrlInHtml(html);
+
+    if (imageUrl && !isAntiBotResponse(html, response.status)) {
+      return normalizeResolvedUrl(imageUrl, normalizedPageUrl);
+    }
+
+    return imageUrl ? normalizeResolvedUrl(imageUrl, normalizedPageUrl) : null;
+  } catch {
+    return null;
+  }
 }
 
 function buildPrompt(category: string | undefined, subcategory?: string, brand?: string): string {
@@ -518,6 +698,25 @@ function buildImageContent(imageUrl?: string, imageBase64?: string) {
   };
 }
 
+async function downloadImageBase64(imageUrl: string): Promise<string | undefined> {
+  try {
+    const response = await axios.get(imageUrl, {
+      responseType: "arraybuffer",
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+        Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+      },
+      validateStatus: null,
+      maxRedirects: 10,
+    });
+
+    if (response.status !== 200 || !response.data) return undefined;
+    return Buffer.from(response.data).toString("base64");
+  } catch {
+    return undefined;
+  }
+}
+
 function normalizeAssistantContent(content: unknown) {
   if (typeof content === "string") {
     return content;
@@ -548,6 +747,8 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
   }
 
   let resolvedImageUrl: string | undefined;
+  let imageBase64 = options.imageBase64;
+
   if (imageUrl && !isImageUrl(imageUrl)) {
     const resolved = await resolveImageUrlFromPage(imageUrl);
     if (!resolved) {
@@ -557,7 +758,11 @@ export async function analyzeImage(options: AnalyzeImageOptions) {
     resolvedImageUrl = resolved;
   }
 
-  const imageContent = buildImageContent(imageUrl, options.imageBase64);
+  if (!imageBase64 && imageUrl && isImageUrl(imageUrl)) {
+    imageBase64 = await downloadImageBase64(imageUrl);
+  }
+
+  const imageContent = buildImageContent(imageBase64 ? undefined : imageUrl, imageBase64);
 
   const data = {
     messages: [
