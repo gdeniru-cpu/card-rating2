@@ -413,44 +413,61 @@ function parseWildberriesProductId(pageUrl: string): string | null {
   }
 }
 
-function getWildberriesBasketHost(productId: string): string {
+function getWildberriesBasketNumber(productId: string): number {
   const volume = Math.floor(Number(productId) / 100000);
 
-  if (volume <= 143) return "basket-01.wbbasket.ru";
-  if (volume <= 287) return "basket-02.wbbasket.ru";
-  if (volume <= 431) return "basket-03.wbbasket.ru";
-  if (volume <= 719) return "basket-04.wbbasket.ru";
-  if (volume <= 1007) return "basket-05.wbbasket.ru";
-  if (volume <= 1061) return "basket-06.wbbasket.ru";
-  if (volume <= 1115) return "basket-07.wbbasket.ru";
-  if (volume <= 1169) return "basket-08.wbbasket.ru";
-  if (volume <= 1313) return "basket-09.wbbasket.ru";
-  if (volume <= 1601) return "basket-10.wbbasket.ru";
-  if (volume <= 1655) return "basket-11.wbbasket.ru";
-  if (volume <= 1919) return "basket-12.wbbasket.ru";
-  if (volume <= 2045) return "basket-13.wbbasket.ru";
-  if (volume <= 2189) return "basket-14.wbbasket.ru";
-  if (volume <= 2405) return "basket-15.wbbasket.ru";
-  if (volume <= 2621) return "basket-16.wbbasket.ru";
-  if (volume <= 2837) return "basket-17.wbbasket.ru";
-  if (volume <= 3053) return "basket-18.wbbasket.ru";
-  if (volume <= 3269) return "basket-19.wbbasket.ru";
-  if (volume <= 3485) return "basket-20.wbbasket.ru";
-  if (volume <= 3701) return "basket-21.wbbasket.ru";
+  if (volume <= 143) return 1;
+  if (volume <= 287) return 2;
+  if (volume <= 431) return 3;
+  if (volume <= 719) return 4;
+  if (volume <= 1007) return 5;
+  if (volume <= 1061) return 6;
+  if (volume <= 1115) return 7;
+  if (volume <= 1169) return 8;
+  if (volume <= 1313) return 9;
+  if (volume <= 1601) return 10;
+  if (volume <= 1655) return 11;
+  if (volume <= 1919) return 12;
+  if (volume <= 2045) return 13;
+  if (volume <= 2189) return 14;
+  if (volume <= 2405) return 15;
+  if (volume <= 2621) return 16;
+  if (volume <= 2837) return 17;
+  if (volume <= 3053) return 18;
+  if (volume <= 3269) return 19;
+  if (volume <= 3485) return 20;
+  if (volume <= 3701) return 21;
 
-  const basketNumber = Math.ceil((volume - 3701) / 216) + 21;
+  return Math.ceil((volume - 3701) / 216) + 21;
+}
+
+function getWildberriesBasketHost(basketNumber: number): string {
   return `basket-${String(basketNumber).padStart(2, "0")}.wbbasket.ru`;
 }
 
 function buildWildberriesImageCandidates(productId: string): string[] {
   const volume = Math.floor(Number(productId) / 100000);
   const part = Math.floor(Number(productId) / 1000);
-  const host = getWildberriesBasketHost(productId);
+  const basketNumber = getWildberriesBasketNumber(productId);
+  const basketNumbers = [
+    basketNumber,
+    basketNumber - 1,
+    basketNumber + 1,
+    basketNumber - 2,
+    basketNumber + 2,
+  ].filter((value, index, values) => value > 0 && value <= 80 && values.indexOf(value) === index);
+
+  const cdnCandidates = basketNumbers.flatMap((candidateBasketNumber) => {
+    const host = getWildberriesBasketHost(candidateBasketNumber);
+    return [
+      `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.webp`,
+      `https://${host}/vol${volume}/part${part}/${productId}/images/c516x688/1.webp`,
+      `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.jpg`,
+    ];
+  });
 
   return [
-    `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.webp`,
-    `https://${host}/vol${volume}/part${part}/${productId}/images/c516x688/1.webp`,
-    `https://${host}/vol${volume}/part${part}/${productId}/images/big/1.jpg`,
+    ...cdnCandidates,
     `https://images.wbstatic.net/c1000x1500/new/${productId}-1.jpg`,
     `https://images.wbstatic.net/c800x1200/new/${productId}-1.jpg`,
     `https://images.wbstatic.net/c516x688/new/${productId}-1.jpg`,
